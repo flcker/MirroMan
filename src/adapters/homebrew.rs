@@ -118,6 +118,10 @@ impl PackageManagerAdapter for HomebrewAdapter {
         matches!(os, Os::MacOS | Os::Linux) && has_executable("brew")
     }
 
+    fn supported_platforms(&self) -> &'static str {
+        "macOS / Linux"
+    }
+
     fn current_mirror_name(&self) -> Option<String> {
         let api_domain = std::env::var("HOMEBREW_API_DOMAIN").ok()?;
         if api_domain.is_empty() {

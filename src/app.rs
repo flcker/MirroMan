@@ -52,10 +52,12 @@ impl App {
         adapters: Vec<Box<dyn PackageManagerAdapter>>,
         current_mirror_names: Vec<Option<String>>,
     ) -> Self {
+        // 找到第一个可用的适配器索引
+        let first_available = adapters.iter().position(|a| a.is_available()).unwrap_or(0);
         Self {
             config,
             adapters,
-            selected_manager_index: 0,
+            selected_manager_index: first_available,
             selected_mirror_index: 0,
             focus: Focus::Managers,
             mode: AppMode::Normal,
@@ -252,8 +254,14 @@ impl App {
     fn navigate_up(&mut self) {
         match self.focus {
             Focus::Managers => {
-                if self.selected_manager_index > 0 {
-                    self.selected_manager_index -= 1;
+                // 跳过不可用的适配器
+                let mut idx = self.selected_manager_index;
+                while idx > 0 {
+                    idx -= 1;
+                    if self.adapters[idx].is_available() {
+                        self.selected_manager_index = idx;
+                        break;
+                    }
                 }
                 self.selected_mirror_index = 0;
             }
@@ -268,8 +276,14 @@ impl App {
     fn navigate_down(&mut self) {
         match self.focus {
             Focus::Managers => {
-                if self.selected_manager_index + 1 < self.adapters.len() {
-                    self.selected_manager_index += 1;
+                // 跳过不可用的适配器
+                let mut idx = self.selected_manager_index;
+                while idx + 1 < self.adapters.len() {
+                    idx += 1;
+                    if self.adapters[idx].is_available() {
+                        self.selected_manager_index = idx;
+                        break;
+                    }
                 }
                 self.selected_mirror_index = 0;
             }

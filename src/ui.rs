@@ -56,12 +56,27 @@ fn render_managers(frame: &mut Frame, app: &App, area: Rect) {
         .adapters
         .iter()
         .map(|a| {
-            let label = if a.is_available() {
-                format!(" ✓ {}", a.name())
+            let status = if a.is_available() { "✓" } else { "✗" };
+            let name_style = if a.is_available() {
+                Style::default()
             } else {
-                format!(" ✗ {} (不可用)", a.name())
+                Style::default().fg(Color::DarkGray)
             };
-            ListItem::new(label)
+            let line = Line::from(vec![
+                Span::styled(
+                    format!(" {} {}", status, a.name()),
+                    name_style,
+                ),
+                Span::styled(
+                    if a.is_available() {
+                        format!("  [{}]", a.supported_platforms())
+                    } else {
+                        "  [不可用]".to_string()
+                    },
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]);
+            ListItem::new(line)
         })
         .collect();
 

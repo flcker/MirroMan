@@ -22,7 +22,7 @@
 
 项目规则按模块拆分存放于 `rules/` 目录，团队共享，纳入版本控制：
 
-- [模型与执行策略](rules/model-strategy.md)
-- [上下文管理策略](rules/context-strategy.md)
-- [Plan 文件规范](rules/plan-convention.md)
-- [文档规范](rules/doc-convention.md)
+- [模型与执行策略](.agent/rules/model-strategy.md)
+- [上下文管理策略](.agent/rules/context-strategy.md)
+- [Plan 文件规范](.agent/rules/plan-convention.md)
+- [文档规范](.agent/rules/doc-convention.md)

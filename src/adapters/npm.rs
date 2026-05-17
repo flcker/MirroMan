@@ -49,6 +49,10 @@ impl PackageManagerAdapter for NpmAdapter {
         has_executable("npm")
     }
 
+    fn supported_platforms(&self) -> &'static str {
+        "Win / Mac / Linux"
+    }
+
     fn current_mirror_name(&self) -> Option<String> {
         let output = std::process::Command::new("npm")
             .args(["config", "get", "registry"])

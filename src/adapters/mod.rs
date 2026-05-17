@@ -29,4 +29,7 @@ pub trait PackageManagerAdapter: Send + Sync {
     fn current_mirror_name(&self) -> Option<String> {
         None
     }
+
+    /// 支持的操作系统描述
+    fn supported_platforms(&self) -> &'static str;
 }

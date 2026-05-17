@@ -114,6 +114,10 @@ impl PackageManagerAdapter for CargoAdapter {
         has_executable("cargo")
     }
 
+    fn supported_platforms(&self) -> &'static str {
+        "Win / Mac / Linux"
+    }
+
     fn current_mirror_name(&self) -> Option<String> {
         let path = Self::config_path();
         let content = std::fs::read_to_string(&path).ok()?;

@@ -4,9 +4,9 @@
 
 ## 支持
 
-- **Cargo** (Rust) — 修改 `~/.cargo/config.toml`
-- **npm** — 执行 `npm config set registry`
-- **Homebrew** — 写入 shell profile 环境变量
+- **Cargo** (Rust) — 跨平台，修改 `~/.cargo/config.toml`
+- **npm** — 跨平台，执行 `npm config set registry`
+- **Homebrew** — macOS / Linux，写入 shell profile 环境变量
 
 ## 安装
 
