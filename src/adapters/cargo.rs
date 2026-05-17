@@ -30,9 +30,11 @@ impl CargoAdapter {
         } else if mirror_url.contains(".git") {
             mirror_url.to_string()
         } else {
-            // rsproxy 这种特殊格式
-            if mirror_url.contains("rsproxy") {
-                "https://rsproxy.cn/crates.io-index".to_string()
+            // rsproxy 使用 sparse 协议
+            if mirror_url.contains("sparse+") {
+                mirror_url.to_string()
+            } else if mirror_url.contains("rsproxy") {
+                "sparse+https://rsproxy.cn/index/".to_string()
             } else {
                 format!("{}/crates.io-index", mirror_url.trim_end_matches('/'))
             }
@@ -98,6 +100,8 @@ impl PackageManagerAdapter for CargoAdapter {
 
         let test_url = if mirror.url.contains("rsproxy") {
             "https://rsproxy.cn".to_string()
+        } else if mirror.url.starts_with("sparse+") {
+            mirror.url.trim_start_matches("sparse+").to_string()
         } else {
             mirror.url.clone()
         };
@@ -128,58 +132,39 @@ impl PackageManagerAdapter for CargoAdapter {
     }
 }
 
-/// 合并已有的 cargo config 和新的 source 配置
+/// 清理所有 [source.*] 和 [registries.*] 段，追加新的 source 配置
 fn merge_cargo_config(existing: &str, new_source_section: &str) -> String {
-    // 简单策略：移除旧的 [source.*] 段，追加新的
-    let lines: Vec<&str> = existing.lines().collect();
-    let clean_start = find_source_section_start(&lines);
-    let clean_end = find_last_source_section_end(&lines, clean_start);
-
     let mut result = String::new();
+    let mut skip = false;
 
-    // 保留 source section 之前的内容
-    if let Some(start) = clean_start {
-        for line in &lines[..start] {
+    for line in existing.lines() {
+        let trimmed = line.trim();
+
+        // 遇到 [source.*] 或 [registries.*] 开始跳过
+        if trimmed.starts_with("[source.") || trimmed.starts_with("[registries.") {
+            skip = true;
+            continue;
+        }
+
+        // 遇到其他 [xxx] 段（非 source/registries），停止跳过
+        if skip && trimmed.starts_with('[') {
+            skip = false;
+        }
+
+        if !skip {
             result.push_str(line);
             result.push('\n');
         }
-        // 保留 source section 之后的内容
-        if let Some(end) = clean_end {
-            for line in &lines[end..] {
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-    } else {
-        result.push_str(existing);
-        if !existing.ends_with('\n') {
-            result.push('\n');
-        }
+    }
+
+    // 确保末尾有换行
+    if !result.ends_with('\n') {
+        result.push('\n');
     }
 
     result.push('\n');
     result.push_str(new_source_section);
     result
-}
-
-fn find_source_section_start(lines: &[&str]) -> Option<usize> {
-    lines.iter().position(|line| {
-        let trimmed = line.trim();
-        trimmed.starts_with("[source.") || trimmed.starts_with("[registries.")
-    })
-}
-
-fn find_last_source_section_end(lines: &[&str], start: Option<usize>) -> Option<usize> {
-    let start = start?;
-    let mut end = start;
-    for (i, line) in lines.iter().enumerate().skip(start + 1) {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            break;
-        }
-        end = i + 1;
-    }
-    Some(end)
 }
 
 #[cfg(test)]
@@ -193,6 +178,18 @@ mod tests {
         let merged = merge_cargo_config(existing, new_source);
         assert!(merged.contains("[build]"));
         assert!(merged.contains("[source.crates-io]"));
+    }
+
+    #[test]
+    fn test_merge_removes_old_source_sections() {
+        let existing = "[build]\nrustflags = [\"-D\"]\n\n[source.rsproxy]\nregistry = \"old\"\n\n[registries.rsproxy]\nindex = \"old\"\n\n[other]\nkeep = true\n";
+        let new_source = "[source.crates-io]\nreplace-with = 'mirror'\n";
+        let merged = merge_cargo_config(existing, new_source);
+        assert!(merged.contains("[build]"));
+        assert!(merged.contains("[other]"));
+        assert!(merged.contains("[source.crates-io]"));
+        assert!(!merged.contains("[source.rsproxy]"));
+        assert!(!merged.contains("[registries.rsproxy]"));
     }
 
     #[test]

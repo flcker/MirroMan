@@ -71,7 +71,7 @@ fn default_config() -> Config {
         settings: Settings::default(),
         cargo: CargoConfig {
             mirrors: vec![
-                Mirror::new("rsproxy（默认）", "https://rsproxy.cn"),
+                Mirror::new("rsproxy（默认）", "sparse+https://rsproxy.cn/index/"),
                 Mirror::new("清华 TUNA", "https://mirrors.tuna.tsinghua.edu.cn/git/crates.io-index.git"),
                 Mirror::new("中科大 USTC", "https://mirrors.ustc.edu.cn/crates.io-index"),
                 Mirror::new("crates.io 官方", "https://github.com/rust-lang/crates.io-index"),
