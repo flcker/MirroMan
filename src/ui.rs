@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, AppMode, Focus};
+use crate::app::{App, AppMode, BatchTestResultItem, Focus};
 
 /// 渲染整个 TUI 界面
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -33,14 +33,55 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     // 弹窗层（覆盖在最上层）
     match &app.mode {
-        AppMode::AddMirror { input_name, input_url, focus_url } => {
+        AppMode::AddMirror {
+            input_name,
+            input_url,
+            focus_url,
+        } => {
             render_mirror_form_popup(frame, "添加镜像", input_name, input_url, *focus_url);
         }
-        AppMode::EditMirror { input_name, input_url, focus_url } => {
+        AppMode::EditMirror {
+            input_name,
+            input_url,
+            focus_url,
+        } => {
             render_mirror_form_popup(frame, "编辑镜像", input_name, input_url, *focus_url);
         }
         AppMode::ConfirmDelete => {
-            render_confirm_delete_popup(frame, app);
+            render_confirm_popup(frame, app, "删除确认", "删除", |a| {
+                a.current_mirrors()
+                    .get(a.selected_mirror_index)
+                    .map(|m| m.name.as_str())
+                    .unwrap_or("未知")
+                    .to_string()
+            });
+        }
+        AppMode::ConfirmRestore => {
+            let adapter_name = app
+                .current_adapter()
+                .map(|a| a.name())
+                .unwrap_or("未知");
+            render_confirm_popup(frame, app, "还原确认", "还原", |_| {
+                format!("{} 的配置", adapter_name)
+            });
+        }
+        AppMode::ConfirmReset => {
+            let adapter_name = app
+                .current_adapter()
+                .map(|a| a.name())
+                .unwrap_or("未知");
+            render_confirm_popup(frame, app, "重置确认", "重置", |_| {
+                format!("{} 到系统默认", adapter_name)
+            });
+        }
+        AppMode::PostSwitchRefresh {
+            action,
+            mirror_name,
+        } => {
+            render_refresh_popup(frame, action, mirror_name);
+        }
+        AppMode::BatchTestResults(results) => {
+            render_batch_test_popup(frame, results);
         }
         AppMode::Error(msg) => {
             render_error_popup(frame, msg);
@@ -63,10 +104,7 @@ fn render_managers(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::DarkGray)
             };
             let line = Line::from(vec![
-                Span::styled(
-                    format!(" {} {}", status, a.name()),
-                    name_style,
-                ),
+                Span::styled(format!(" {} {}", status, a.name()), name_style),
                 Span::styled(
                     if a.is_available() {
                         format!("  [{}]", a.supported_platforms())
@@ -90,15 +128,22 @@ fn render_managers(frame: &mut Frame, app: &App, area: Rect) {
             Style::default()
         });
 
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(if is_focused { Color::Yellow } else { Color::DarkGray }),
-        );
+    let list = List::new(items).block(block).highlight_style(
+        Style::default()
+            .fg(Color::Black)
+            .bg(if is_focused {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            }),
+    );
 
-    frame.render_stateful_widget(list, area, &mut ratatui::widgets::ListState::default().with_selected(Some(app.selected_manager_index)));
+    frame.render_stateful_widget(
+        list,
+        area,
+        &mut ratatui::widgets::ListState::default()
+            .with_selected(Some(app.selected_manager_index)),
+    );
 }
 
 // ── 右侧：镜像源表格 ────────────────────────────────────
@@ -110,7 +155,8 @@ fn render_mirrors(frame: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(vec!["名称", "URL", "状态", "延迟"])
         .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
 
-    let current_name = app.current_mirror_names
+    let current_name = app
+        .current_mirror_names
         .get(app.selected_manager_index)
         .and_then(|n| n.as_deref());
 
@@ -128,12 +174,7 @@ fn render_mirrors(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 "-".to_string()
             };
-            Row::new(vec![
-                display_name,
-                m.url.clone(),
-                status.to_string(),
-                latency,
-            ])
+            Row::new(vec![display_name, m.url.clone(), status.to_string(), latency])
         })
         .collect();
 
@@ -159,13 +200,18 @@ fn render_mirrors(frame: &mut Frame, app: &App, area: Rect) {
         .row_highlight_style(
             Style::default()
                 .fg(Color::Black)
-                .bg(if is_focused { Color::Cyan } else { Color::DarkGray }),
+                .bg(if is_focused {
+                    Color::Cyan
+                } else {
+                    Color::DarkGray
+                }),
         );
 
     frame.render_stateful_widget(
         table,
         area,
-        &mut ratatui::widgets::TableState::default().with_selected(Some(app.selected_mirror_index)),
+        &mut ratatui::widgets::TableState::default()
+            .with_selected(Some(app.selected_mirror_index)),
     );
 }
 
@@ -179,9 +225,13 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
             ("Tab", "→管理器"),
             ("Enter", "切换"),
             ("t", "测速"),
+            ("T", "批量测速"),
+            ("v", "验证"),
             ("a", "添加"),
             ("d", "删除"),
             ("e", "编辑"),
+            ("r", "还原"),
+            ("R", "重置"),
         ]
     } else {
         &[
@@ -189,6 +239,8 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
             ("↑↓/jk", "导航"),
             ("Tab", "→镜像源"),
             ("Enter", "切换"),
+            ("r", "还原"),
+            ("R", "重置"),
         ]
     };
 
@@ -196,7 +248,12 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .flat_map(|(key, desc)| {
             vec![
-                Span::styled(*key, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    *key,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(format!(" {}  ", desc), Style::default().fg(Color::Gray)),
             ]
         })
@@ -208,28 +265,44 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray),
     ));
 
-    let status = app
-        .status_message
-        .as_deref()
-        .unwrap_or("");
+    let status = app.status_message.as_deref().unwrap_or("");
 
     let mut text = vec![Line::from(spans)];
     if !status.is_empty() {
-        text.push(Line::from(Span::styled(status, Style::default().fg(Color::Green))));
+        text.push(Line::from(Span::styled(
+            status,
+            Style::default().fg(Color::Green),
+        )));
     }
 
-    let paragraph = Paragraph::new(text)
-        .block(Block::default().borders(Borders::NONE));
+    // 冲突警告
+    if let Some(adapter) = app.current_adapter() {
+        for warning in adapter.conflict_warnings() {
+            text.push(Line::from(Span::styled(
+                format!("⚠ {}", warning),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+    }
+
+    let paragraph = Paragraph::new(text).block(Block::default().borders(Borders::NONE));
 
     frame.render_widget(paragraph, area);
 }
 
 // ── 弹窗：添加镜像 ──────────────────────────────────────
 
-fn render_mirror_form_popup(frame: &mut Frame, title: &str, name: &str, url: &str, focus_url: bool) {
+fn render_mirror_form_popup(
+    frame: &mut Frame,
+    title: &str,
+    name: &str,
+    url: &str,
+    focus_url: bool,
+) {
     let r = frame.area();
 
-    // 弹窗：60% 宽，最少 10 行高度
     let width_pct = 60u16;
     let popup_height = ((r.height as u16 * 35 / 100).max(10)).min(r.height as u16);
 
@@ -254,7 +327,6 @@ fn render_mirror_form_popup(frame: &mut Frame, title: &str, name: &str, url: &st
     let area = horiz[1];
     frame.render_widget(ratatui::widgets::Clear, area);
 
-    // 弹窗内部上下分栏
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(5), Constraint::Length(3)])
@@ -263,18 +335,25 @@ fn render_mirror_form_popup(frame: &mut Frame, title: &str, name: &str, url: &st
     let form_area = chunks[0];
     let help_area = chunks[1];
 
-    // ── 输入区 ──
     let content = vec![
         Line::from(""),
         Line::from(Span::styled("名称:", Style::default().fg(Color::Yellow))),
         {
-            let display_name = if focus_url { name.to_string() } else { format!("{}▎", name) };
+            let display_name = if focus_url {
+                name.to_string()
+            } else {
+                format!("{}▎", name)
+            };
             Line::from(Span::styled(display_name, Style::default()))
         },
         Line::from(""),
         Line::from(Span::styled("URL:", Style::default().fg(Color::Yellow))),
         {
-            let display_url = if focus_url { format!("{}▎", url) } else { url.to_string() };
+            let display_url = if focus_url {
+                format!("{}▎", url)
+            } else {
+                url.to_string()
+            };
             Line::from(Span::styled(display_url, Style::default()))
         },
     ];
@@ -287,7 +366,6 @@ fn render_mirror_form_popup(frame: &mut Frame, title: &str, name: &str, url: &st
     let paragraph = Paragraph::new(content).block(form_block);
     frame.render_widget(paragraph, form_area);
 
-    // ── 快捷键栏 ──
     let shortcuts = vec![
         ("Enter", "保存"),
         ("↑↓←→/Tab", "切换行"),
@@ -297,13 +375,17 @@ fn render_mirror_form_popup(frame: &mut Frame, title: &str, name: &str, url: &st
         .iter()
         .flat_map(|(key, desc)| {
             vec![
-                Span::styled(*key, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    *key,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(format!(" {}  ", desc), Style::default().fg(Color::Gray)),
             ]
         })
         .collect();
 
-    // 追加当前镜像标识说明
     spans.push(Span::styled(
         "  *当前镜像",
         Style::default().fg(Color::DarkGray),
@@ -317,20 +399,19 @@ fn render_mirror_form_popup(frame: &mut Frame, title: &str, name: &str, url: &st
     frame.render_widget(help_paragraph, help_area);
 }
 
-// ── 弹窗：确认删除 ──────────────────────────────────────
+// ── 弹窗：通用确认（删除/还原/重置） ──────────────────────
 
-fn render_confirm_delete_popup(frame: &mut Frame, app: &App) {
-    let area = centered_rect(40, 20, frame.area());
-    let mirrors = app.current_mirrors();
-    let mirror_name = mirrors
-        .get(app.selected_mirror_index)
-        .map(|m| m.name.as_str())
-        .unwrap_or("未知");
+fn render_confirm_popup<F>(frame: &mut Frame, app: &App, _title: &str, action: &str, name_fn: F)
+where
+    F: FnOnce(&App) -> String,
+{
+    let area = centered_rect(50, 20, frame.area());
+    let name = name_fn(app);
 
     let content = vec![
         Line::from(""),
         Line::from(Span::styled(
-            format!("确认删除镜像 \"{}\" ?", mirror_name),
+            format!("确认{} \"{}\" ?", action, name),
             Style::default(),
         )),
         Line::from(""),
@@ -341,13 +422,125 @@ fn render_confirm_delete_popup(frame: &mut Frame, app: &App) {
     ];
 
     let block = Block::default()
-        .title("删除确认")
+        .title(format!("{}确认", action))
         .borders(Borders::ALL)
         .style(Style::default());
 
-    let paragraph = Paragraph::new(content).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(ratatui::widgets::Clear, area);
     frame.render_widget(paragraph, area);
+}
+
+// ── 弹窗：切换后刷新操作 ──────────────────────────────────
+
+fn render_refresh_popup(frame: &mut Frame, action: &crate::adapters::RefreshAction, mirror_name: &str) {
+    let area = centered_rect(60, 30, frame.area());
+
+    let sudo_note = if action.requires_sudo {
+        "\n(需要 sudo 权限)"
+    } else {
+        ""
+    };
+
+    let content = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("已切换到镜像: {}", mirror_name),
+            Style::default().fg(Color::Green),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("⚡ 建议{}:", action.description),
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(Span::styled(
+            format!(
+                "   {} {}{}",
+                action.command,
+                action.args.join(" "),
+                sudo_note
+            ),
+            Style::default(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Enter 立即执行 | Esc 跳过",
+            Style::default().fg(Color::Gray),
+        )),
+    ];
+
+    let block = Block::default()
+        .title("刷新建议")
+        .borders(Borders::ALL)
+        .style(Style::default());
+
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    frame.render_widget(ratatui::widgets::Clear, area);
+    frame.render_widget(paragraph, area);
+}
+
+// ── 弹窗：批量测速结果 ──────────────────────────────────
+
+fn render_batch_test_popup(frame: &mut Frame, results: &[BatchTestResultItem]) {
+    let area = centered_rect(70, 50, frame.area());
+
+    let header = Row::new(vec!["镜像名称", "延迟", "状态"])
+        .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+
+    let rows: Vec<Row> = results
+        .iter()
+        .map(|r| {
+            let latency = r
+                .latency_ms
+                .map(|l| format!("{}ms", l))
+                .unwrap_or_else(|| "-".to_string());
+            let status = if r.reachable { "✓" } else { "✗" };
+            let status_style = if r.reachable {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::Red)
+            };
+            Row::new(vec![
+                r.name.clone(),
+                latency,
+                status.to_string(),
+            ])
+            .style(status_style)
+        })
+        .collect();
+
+    let widths = [
+        Constraint::Percentage(50),
+        Constraint::Percentage(25),
+        Constraint::Percentage(25),
+    ];
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(
+            Block::default()
+                .title("批量测速结果（按延迟排序）")
+                .borders(Borders::ALL),
+        );
+
+    // 帮助行
+    let help = Line::from(Span::styled(
+        "Esc / Enter / q 关闭",
+        Style::default().fg(Color::Gray),
+    ));
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
+        .split(area);
+
+    frame.render_widget(ratatui::widgets::Clear, area);
+    frame.render_widget(table, chunks[0]);
+    frame.render_widget(Paragraph::new(help), chunks[1]);
 }
 
 // ── 弹窗：错误提示 ──────────────────────────────────────
@@ -370,7 +563,9 @@ fn render_error_popup(frame: &mut Frame, msg: &str) {
         .borders(Borders::ALL)
         .style(Style::default().fg(Color::Red));
 
-    let paragraph = Paragraph::new(content).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(ratatui::widgets::Clear, area);
     frame.render_widget(paragraph, area);
 }

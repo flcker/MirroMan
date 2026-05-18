@@ -26,3 +26,4 @@
 - [上下文管理策略](.agent/rules/context-strategy.md)
 - [Plan 文件规范](.agent/rules/plan-convention.md)
 - [文档规范](.agent/rules/doc-convention.md)
+- [设计模式与设计原则](.agent/rules/design-patterns.md)

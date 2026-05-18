@@ -1,10 +1,10 @@
 use crate::adapters::PackageManagerAdapter;
-use crate::config::Config;
+use crate::config::{backup_dir, Config};
 use crate::mirror::Mirror;
-use crate::utils::command::run_command;
+use crate::utils::command::{http_head, load_backup_text, run_command, save_backup_text};
 use crate::utils::os::has_executable;
 use anyhow::{Context, Result};
-use std::time::Instant;
+use std::path::PathBuf;
 
 pub struct NpmAdapter {
     mirrors: Vec<Mirror>,
@@ -15,6 +15,10 @@ impl NpmAdapter {
         Self {
             mirrors: config.npm.mirrors.clone(),
         }
+    }
+
+    fn backup_path() -> PathBuf {
+        backup_dir().join("npm").join("registry.txt")
     }
 }
 
@@ -28,21 +32,18 @@ impl PackageManagerAdapter for NpmAdapter {
     }
 
     fn switch_mirror(&self, mirror: &Mirror) -> Result<()> {
+        // 切换前自动备份
+        self.backup()?;
+
         run_command("npm", &["config", "set", "registry", &mirror.url])
             .with_context(|| format!("npm config set registry 失败: {}", mirror.url))?;
         Ok(())
     }
 
     fn test_mirror(&self, mirror: &Mirror) -> Result<u64> {
-        let start = Instant::now();
-
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .context("无法创建 HTTP 客户端")?;
-
-        client.head(&mirror.url).send().context("镜像不可达")?;
-        Ok(start.elapsed().as_millis() as u64)
+        // 测试 /npm 端点（轻量包）
+        let test_url = format!("{}/npm", mirror.url.trim_end_matches('/'));
+        http_head(&test_url)
     }
 
     fn is_available(&self) -> bool {
@@ -62,7 +63,37 @@ impl PackageManagerAdapter for NpmAdapter {
         if registry.is_empty() {
             return None;
         }
-        self.mirrors.iter().find(|m| m.url == registry).map(|m| m.name.clone())
+        self.mirrors
+            .iter()
+            .find(|m| m.url == registry)
+            .map(|m| m.name.clone())
+    }
+
+    // ── v0.1.1 备份/还原/重置 ──
+
+    fn backup(&self) -> Result<()> {
+        let output = std::process::Command::new("npm")
+            .args(["config", "get", "registry"])
+            .output()
+            .context("无法获取当前 npm registry")?;
+        let registry = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        save_backup_text(&Self::backup_path(), &registry)
+    }
+
+    fn restore(&self) -> Result<()> {
+        if let Some(registry) = load_backup_text(&Self::backup_path()) {
+            if !registry.is_empty() {
+                run_command("npm", &["config", "set", "registry", &registry])
+                    .context("npm config set registry 还原失败")?;
+            }
+        }
+        Ok(())
+    }
+
+    fn reset_to_default(&self) -> Result<()> {
+        run_command("npm", &["config", "delete", "registry"])
+            .context("npm config delete registry 失败")?;
+        Ok(())
     }
 }
 
@@ -75,7 +106,6 @@ mod tests {
         let adapter = NpmAdapter {
             mirrors: vec![Mirror::new("test", "https://registry.npmjs.org")],
         };
-        // npm 可能不可用，但结构体测试应该通过
         assert_eq!(adapter.name(), "npm");
         assert_eq!(adapter.list_mirrors().len(), 1);
     }

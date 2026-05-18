@@ -1,11 +1,12 @@
 use crate::adapters::PackageManagerAdapter;
-use crate::config::Config;
+use crate::config::{backup_dir, Config};
 use crate::mirror::Mirror;
+use crate::utils::command::{backup_file, git_ls_remote, http_head, restore_file};
 use crate::utils::os::has_executable;
 use crate::utils::paths::expand_tilde;
 use anyhow::{Context, Result};
 use std::fs;
-use std::time::Instant;
+use std::path::PathBuf;
 
 pub struct CargoAdapter {
     mirrors: Vec<Mirror>,
@@ -19,18 +20,22 @@ impl CargoAdapter {
     }
 
     /// Cargo 配置文件路径
-    fn config_path() -> std::path::PathBuf {
+    fn config_path() -> PathBuf {
         expand_tilde("~/.cargo/config.toml")
     }
 
-    /// 拼写 cargo config 格式
+    /// 备份文件路径
+    fn backup_path() -> PathBuf {
+        backup_dir().join("Cargo").join("config.toml")
+    }
+
+    /// 构建 cargo config 格式
     fn build_cargo_config(mirror_name: &str, mirror_url: &str) -> String {
         let index_url = if mirror_name.contains("官方") || mirror_name.contains("crates.io") {
             "https://github.com/rust-lang/crates.io-index".to_string()
         } else if mirror_url.contains(".git") {
             mirror_url.to_string()
         } else {
-            // rsproxy 使用 sparse 协议
             if mirror_url.contains("sparse+") {
                 mirror_url.to_string()
             } else if mirror_url.contains("rsproxy") {
@@ -64,6 +69,9 @@ impl PackageManagerAdapter for CargoAdapter {
     }
 
     fn switch_mirror(&self, mirror: &Mirror) -> Result<()> {
+        // 切换前自动备份
+        self.backup()?;
+
         let path = Self::config_path();
 
         // 确保父目录存在
@@ -74,7 +82,6 @@ impl PackageManagerAdapter for CargoAdapter {
 
         let new_content = Self::build_cargo_config(&mirror.name, &mirror.url);
 
-        // 如果已有配置文件，追加/替换 cargo source 配置
         let final_content = if path.exists() {
             let existing = fs::read_to_string(&path)
                 .with_context(|| format!("无法读取: {}", path.display()))?;
@@ -90,24 +97,18 @@ impl PackageManagerAdapter for CargoAdapter {
     }
 
     fn test_mirror(&self, mirror: &Mirror) -> Result<u64> {
-        let start = Instant::now();
-
-        // 对镜像 URL 发送 HTTP HEAD 请求
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .context("无法创建 HTTP 客户端")?;
-
-        let test_url = if mirror.url.contains("rsproxy") {
-            "https://rsproxy.cn".to_string()
-        } else if mirror.url.starts_with("sparse+") {
-            mirror.url.trim_start_matches("sparse+").to_string()
+        // 改进的测试端点选择
+        if mirror.url.contains("rsproxy") {
+            http_head("https://rsproxy.cn")
+        } else if mirror.url.contains("sparse+") {
+            let url = mirror.url.trim_start_matches("sparse+");
+            http_head(url)
+        } else if mirror.url.contains(".git") {
+            // git 仓库：用 git ls-remote 替代 HTTP HEAD
+            git_ls_remote(&mirror.url)
         } else {
-            mirror.url.clone()
-        };
-
-        client.head(&test_url).send().context("镜像不可达")?;
-        Ok(start.elapsed().as_millis() as u64)
+            http_head(&mirror.url)
+        }
     }
 
     fn is_available(&self) -> bool {
@@ -122,7 +123,6 @@ impl PackageManagerAdapter for CargoAdapter {
         let path = Self::config_path();
         let content = std::fs::read_to_string(&path).ok()?;
 
-        // 查找 replace-with = 'mirror' 对应的 registry URL
         let registry_url = content
             .lines()
             .find(|line| line.trim().starts_with("registry ="))
@@ -131,10 +131,41 @@ impl PackageManagerAdapter for CargoAdapter {
                 v.map(|s| s.to_string())
             })?;
 
-        // 与 mirrors 中的 URL 比对
-        self.mirrors.iter().find(|m| m.url == registry_url).map(|m| m.name.clone())
+        self.mirrors
+            .iter()
+            .find(|m| m.url == registry_url)
+            .map(|m| m.name.clone())
+    }
+
+    // ── v0.1.1 备份/还原/重置 ──
+
+    fn backup(&self) -> Result<()> {
+        let src = Self::config_path();
+        let dst = Self::backup_path();
+        backup_file(&src, &dst)
+    }
+
+    fn restore(&self) -> Result<()> {
+        let src = Self::backup_path();
+        let dst = Self::config_path();
+        restore_file(&src, &dst)
+    }
+
+    fn reset_to_default(&self) -> Result<()> {
+        let path = Self::config_path();
+        if path.exists() {
+            let content = fs::read_to_string(&path)
+                .with_context(|| format!("无法读取: {}", path.display()))?;
+            // 移除 [source.*] 和 [registries.*] 段
+            let cleaned = remove_sections(&content);
+            fs::write(&path, &cleaned)
+                .with_context(|| format!("无法写入: {}", path.display()))?;
+        }
+        Ok(())
     }
 }
+
+// ── Cargo 配置处理辅助函数 ───────────────────────────────
 
 /// 清理所有 [source.*] 和 [registries.*] 段，追加新的 source 配置
 fn merge_cargo_config(existing: &str, new_source_section: &str) -> String {
@@ -144,13 +175,11 @@ fn merge_cargo_config(existing: &str, new_source_section: &str) -> String {
     for line in existing.lines() {
         let trimmed = line.trim();
 
-        // 遇到 [source.*] 或 [registries.*] 开始跳过
         if trimmed.starts_with("[source.") || trimmed.starts_with("[registries.") {
             skip = true;
             continue;
         }
 
-        // 遇到其他 [xxx] 段（非 source/registries），停止跳过
         if skip && trimmed.starts_with('[') {
             skip = false;
         }
@@ -161,13 +190,43 @@ fn merge_cargo_config(existing: &str, new_source_section: &str) -> String {
         }
     }
 
-    // 确保末尾有换行
     if !result.ends_with('\n') {
         result.push('\n');
     }
 
     result.push('\n');
     result.push_str(new_source_section);
+    result
+}
+
+/// 移除 [source.*] 和 [registries.*] 段（用于 reset_to_default）
+fn remove_sections(existing: &str) -> String {
+    let mut result = String::new();
+    let mut skip = false;
+
+    for line in existing.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("[source.") || trimmed.starts_with("[registries.") {
+            skip = true;
+            continue;
+        }
+
+        if skip && trimmed.starts_with('[') {
+            skip = false;
+        }
+
+        if !skip {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    // 去除尾部多余空行
+    while result.ends_with("\n\n") {
+        result.pop();
+    }
+
     result
 }
 
@@ -198,12 +257,20 @@ mod tests {
 
     #[test]
     fn test_cargo_adapter_basics() {
-        // 在 dev 环境下 cargo 应该存在
         let adapter = CargoAdapter {
-            mirrors: vec![Mirror::new("test", "https://example.com")],
+            mirrors: vec![Mirror::new("test", "sparse+https://rsproxy.cn/index/")],
         };
-        assert!(adapter.is_available());
         assert_eq!(adapter.name(), "Cargo");
+        assert!(adapter.supported_platforms().contains("Win"));
         assert_eq!(adapter.list_mirrors().len(), 1);
+    }
+
+    #[test]
+    fn test_remove_sections() {
+        let existing = "[build]\nr = true\n\n[source.crates-io]\nreplace-with = 'm'\n\n[other]\nx = 1\n";
+        let cleaned = remove_sections(existing);
+        assert!(cleaned.contains("[build]"));
+        assert!(cleaned.contains("[other]"));
+        assert!(!cleaned.contains("[source.crates-io]"));
     }
 }
