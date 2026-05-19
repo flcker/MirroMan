@@ -112,6 +112,19 @@ impl App {
         self.config.mirrors_for(id).cloned().unwrap_or_default()
     }
 
+    /// 获取指定适配器的"有效当前镜像名"：
+    /// 优先返回检测到的，失败则回退到镜像列表第一个
+    pub fn effective_current_mirror_name(&self) -> Option<String> {
+        self.current_mirror_names
+            .get(self.selected_manager_index)
+            .and_then(|n| n.clone())
+            .or_else(|| {
+                self.current_mirrors()
+                    .first()
+                    .map(|m| m.name.clone())
+            })
+    }
+
     /// 主事件循环，每次 poll 一个事件并处理
     pub fn handle_event(&mut self) -> Result<()> {
         if !event::poll(Duration::from_millis(100))? {
