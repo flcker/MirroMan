@@ -13,7 +13,7 @@ pub struct NpmAdapter {
 impl NpmAdapter {
     pub fn new(config: &Config) -> Self {
         Self {
-            mirrors: config.npm.mirrors.clone(),
+            mirrors: config.mirrors.npm.mirrors.clone(),
         }
     }
 

@@ -15,7 +15,7 @@ pub struct GoAdapter {
 impl GoAdapter {
     pub fn new(config: &Config) -> Self {
         Self {
-            mirrors: config.goenv.mirrors.clone(),
+            mirrors: config.mirrors.goenv.mirrors.clone(),
         }
     }
 

@@ -16,7 +16,7 @@ pub struct PipAdapter {
 impl PipAdapter {
     pub fn new(config: &Config) -> Self {
         Self {
-            mirrors: config.pip.mirrors.clone(),
+            mirrors: config.mirrors.pip.mirrors.clone(),
             available: OnceLock::new(),
         }
     }

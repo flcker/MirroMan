@@ -16,7 +16,7 @@ pub struct PacmanAdapter {
 impl PacmanAdapter {
     pub fn new(config: &Config) -> Self {
         Self {
-            mirrors: config.pacman.mirrors.clone(),
+            mirrors: config.mirrors.pacman.mirrors.clone(),
             warnings: OnceLock::new(),
         }
     }

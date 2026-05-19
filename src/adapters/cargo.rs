@@ -15,7 +15,7 @@ pub struct CargoAdapter {
 impl CargoAdapter {
     pub fn new(config: &Config) -> Self {
         Self {
-            mirrors: config.cargo.mirrors.clone(),
+            mirrors: config.mirrors.cargo.mirrors.clone(),
         }
     }
 

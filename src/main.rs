@@ -2,6 +2,7 @@ mod app;
 mod adapters;
 mod config;
 mod mirror;
+mod palette;
 mod tui;
 mod ui;
 mod utils;
@@ -36,6 +37,19 @@ fn main() -> Result<()> {
         tracing::info!("备份目录已创建: {}", backup_root.display());
     }
 
+    // 主题调色板（在 config move 前提取）
+    let fallback_theme = crate::config::ThemeConfig {
+        focus_border: None, focus_highlight_bg: None, dim_highlight_bg: None,
+        highlight_fg: None, header_fg: None, dim_text: None,
+        key_fg: None, key_desc: None, success: None, error: None,
+        warning: None, mirror_focus_border: None, mirror_focus_highlight_bg: None,
+    };
+    let palette = palette::Palette::from_theme(
+        config.settings.themes
+            .get(&config.settings.theme)
+            .unwrap_or(&fallback_theme),
+    );
+
     // 构建适配器列表
     // 注意：顺序即 TUI 左侧面板中显示的顺序
     let adapters: Vec<Box<dyn adapters::PackageManagerAdapter>> = vec![
@@ -65,7 +79,7 @@ fn main() -> Result<()> {
             terminal.clear()?;
             app.needs_full_redraw = false;
         }
-        terminal.draw(|frame| ui::draw(frame, &app))?;
+        terminal.draw(|frame| ui::draw(frame, &app, &palette))?;
         app.handle_event()?;
     }
 

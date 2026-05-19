@@ -15,7 +15,7 @@ pub struct HomebrewAdapter {
 impl HomebrewAdapter {
     pub fn new(config: &Config) -> Self {
         Self {
-            mirrors: config.homebrew.mirrors.clone(),
+            mirrors: config.mirrors.homebrew.mirrors.clone(),
         }
     }
 
