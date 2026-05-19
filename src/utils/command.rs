@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use crossterm::execute;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -57,8 +58,16 @@ pub fn run_sudo(args: &[&str]) -> Result<()> {
 /// 交互式 sudo：临时退出 raw 模式让用户输入密码，
 /// 完成后恢复 raw 模式（清屏由下一帧 ratatui draw 完成）
 fn run_sudo_interactive(args: &[&str]) -> Result<()> {
-    // 临时退出 raw 模式，sudo 密码提示在 cooked 模式下正常显示
+    // 临时退出 raw 模式
     crossterm::terminal::disable_raw_mode().ok();
+
+    // 清屏 + 光标归位，确保 sudo 密码提示固定在顶部
+    execute!(
+        std::io::stdout(),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        crossterm::cursor::MoveTo(0, 0),
+    )
+    .ok();
 
     // 执行 sudo（sudo 自身会显示密码提示）
     let status = std::process::Command::new("sudo")
@@ -68,7 +77,6 @@ fn run_sudo_interactive(args: &[&str]) -> Result<()> {
 
     // 恢复 raw 模式，清屏消除 sudo 密码提示残留
     crossterm::terminal::enable_raw_mode().ok();
-    use crossterm::execute;
     execute!(
         std::io::stdout(),
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All),

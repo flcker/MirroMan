@@ -307,6 +307,16 @@ impl App {
     ) {
         match code {
             KeyCode::Enter => {
+                // 清除弹窗，写执行中提示到屏幕
+                use crossterm::execute;
+                execute!(
+                    std::io::stdout(),
+                    crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+                    crossterm::cursor::MoveTo(0, 0),
+                )
+                .ok();
+                println!("正在执行: {} {} ...", action.command, action.args.join(" "));
+
                 // 执行刷新命令
                 let args_str: Vec<&str> = action.args.iter().map(|s| s.as_str()).collect();
                 let result = if action.requires_sudo {

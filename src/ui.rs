@@ -466,7 +466,7 @@ fn render_refresh_popup(frame: &mut Frame, action: &crate::adapters::RefreshActi
         )),
         Line::from(""),
         Line::from(Span::styled(
-            "Enter 立即执行 | Esc 跳过",
+            "Enter 执行（可能需要数秒）| Esc 跳过",
             Style::default().fg(Color::Gray),
         )),
     ];
