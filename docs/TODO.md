@@ -12,7 +12,6 @@
 
 - [ ] **帮助系统**：`?` 呼出全屏帮助弹窗，各操作详细说明 + 包管理器特定说明
 - [ ] **man page / --help**：命令行帮助文档，`mirroman --help` 输出使用说明
-
 - [ ] **Maven 适配器**：`~/.m2/settings.xml` mirror 配置
 - [ ] **RubyGems 适配器**：`gem sources` 管理
 - [ ] **Composer 适配器**：PHP `composer config repos.packagist`

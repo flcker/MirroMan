@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.1 (2026-05-19)
+## v0.2.0 (2026-05-20)
 
 ### 新增
 
@@ -14,10 +14,12 @@
 - **切换后刷新操作**：弹窗建议并一键执行（如 `pacman -Syy`、`source ~/.zshrc`）
 - **交互式 sudo**：临时退出 raw 模式让用户输入密码，自动恢复 TUI
 - **旧配置兼容**：`fill_defaults()` 自动补充新包管理器的默认镜像源
+- **主题系统**：`settings.toml` 管理 theme，内置 dark/light 预设，支持 `#RRGGBB` 色值
 - **设计模式规则**：`.agent/rules/design-patterns.md`
 
 ### 重构
 
+- **配置文件拆分**：`config.toml` → `settings.toml` + `mirrors.toml`，自动迁移旧配置
 - **Config 统一访问**：`mirrors_for()` / `mirrors_for_mut()` 消除 `app.rs` 6 处硬编码 match
 - **Trait 扩展**：`id` / `backup` / `restore` / `reset_to_default` / `validate_mirror` / `refresh_action` / `conflict_warnings`
 - `command.rs` 新增：`sudo_write_file` / `sudo_copy` / `run_sudo` / `git_ls_remote` / `http_head` / 备份文件工具函数
